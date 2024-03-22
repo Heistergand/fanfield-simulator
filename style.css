@@ -1,0 +1,53 @@
+/*  Dieser Code ist das Ergebnis einer einzigartigen Zusammenarbeit zwischen einem menschlichen Entwickler und künstlicher Intelligenz (OpenAI GPT-3.5). 
+ *  Die initiale Struktur und die grundlegenden Konzepte wurden durch die KI vorgeschlagen und bereitgestellt, während die detaillierte Ausarbeitung, 
+ *  Optimierung und Anpassung an spezifische Anforderungen durch die menschliche Expertise erfolgten. Diese Synergie ermöglichte eine effiziente 
+ *  Problemlösung und die Realisierung kreativer Ideen. 
+ * 
+ */
+
+/*  This stylesheet was initially generated with the assistance of OpenAI's GPT-3.5, a powerful language model, and subsequently reviewed and refined 
+ *  by a developer to ensure consistency, responsiveness, and adherence to design principles. 
+ */
+
+body, html {
+  height: 100%;
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden; /* Verhindert Scrollbars, falls der Inhalt größer als der Viewport ist */
+}
+
+#container {
+  display: flex;
+  width: 100vw; /* Setzt die Breite des Containers auf die volle Breite des Viewports */
+  height: 100vh; /* Setzt die Höhe des Containers auf die volle Höhe des Viewports */
+  /* Optional: Hintergrundfarbe des Containers */
+  /* background: #fff;  */
+}
+
+#canvas {
+  flex: 0 0 60%; /* Gibt dem Canvas eine feste Breite von 60% des Containers, ohne zu wachsen oder zu schrumpfen */
+  background-color: black;
+}
+
+#portalList {
+  flex: 1; /* Lässt die Liste den restlichen Platz einnehmen */
+  overflow-y: auto; /* Ermöglicht das Scrollen, wenn der Inhalt die Höhe überschreitet */
+}
+
+table {
+  width: 100%;
+}
+
+th, td {
+  text-align: left;
+  padding: 8px;
+}
+
+th {
+  background-color: #f2f2f2;
+}
+.color-picker {
+    margin-top: 10px;
+}
