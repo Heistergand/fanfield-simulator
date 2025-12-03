@@ -1,16 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- 
-    Dieser Code ist das Ergebnis einer einzigartigen Zusammenarbeit zwischen einem menschlichen Entwickler und künstlicher Intelligenz (OpenAI GPT-3.5). 
-    Die initiale Struktur und die grundlegenden Konzepte wurden durch die KI vorgeschlagen und bereitgestellt, während die detaillierte Ausarbeitung, 
-    Optimierung und Anpassung an spezifische Anforderungen durch die menschliche Expertise erfolgten. Diese Synergie ermöglichte eine effiziente 
-    Problemlösung und die Realisierung kreativer Ideen.
-    -->
-<!-- 
-    This HTML structure was initially generated with the assistance of OpenAI's GPT-3.5, a powerful language model, and subsequently reviewed and 
-    refined by a developer to ensure semantic accuracy, accessibility, and user experience enhancement. 
-    -->
-
 <head>
     <meta charset="UTF-8">
     <title>Canvas and Portal List</title>
@@ -20,7 +9,6 @@
     <div id="container">
         <canvas id="canvas"></canvas>
         <div>
-            <!--<button id="sortPortals">Sort Portals Radially</button>-->
             <button id="sortPortals">Sort</button>
             <button id="rotateLeftBtn"> ← shift</button>
             <button id="rotateRightBtn"> shift → </button>
@@ -52,6 +40,11 @@
             <button id="presetNTR">NEUTRAL</button>
         </div>
 
+        <br>
+        <!-- Neue Anzeige: Anzahl der Felder -->
+        <div id="stats">
+            <strong>Felder:</strong> <span id="fieldCount">0</span>
+        </div>
             
         </div>
         <div id="portalList">
@@ -70,4 +63,3 @@
     <script src="script.js"></script>
 </body>
 </html>
-
