@@ -1,8 +1,3 @@
-// Dieser Code ist das Ergebnis einer einzigartigen Zusammenarbeit zwischen einem menschlichen Entwickler und künstlicher Intelligenz (OpenAI GPT-3.5). 
-// Die initiale Struktur und die grundlegenden Konzepte wurden durch die KI vorgeschlagen und bereitgestellt, während die detaillierte Ausarbeitung, 
-// Optimierung und Anpassung an spezifische Anforderungen durch die menschliche Expertise erfolgten. Diese Synergie ermöglichte eine effiziente 
-// Problemlösung und die Realisierung kreativer Ideen.
-
 // This code was initially generated with the assistance of OpenAI's GPT-3.5, a powerful language model, and subsequently 
 // reviewed and refined by a developer to ensure functionality, efficiency, and adherence to best practices.
 
@@ -80,7 +75,7 @@ document.addEventListener("DOMContentLoaded", function () {
             fieldListContainer.style.marginTop = '8px';
 
             const title = document.createElement('div');
-            title.innerHTML = '<strong>Felder (hover zum Hervorheben)</strong>';
+            title.innerHTML = '<strong>Fields (hover to highlight)</strong>';
             title.style.marginBottom = '6px';
             fieldListContainer.appendChild(title);
 
