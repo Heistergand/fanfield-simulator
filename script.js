@@ -149,32 +149,86 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     };
 
-    function connectPortalsWithLine(newPortal) {
-        for (let i = 0; i < newPortal.index; i++) {
-            let intersect = false;
-
-            // Prüfe für jede bestehende Verbindung, ob die geplante Verbindung
-            // von Portal i zum neuen Portal eine bestehende Verbindung kreuzen würde.
-            for (let link of links) {
-                if (intersects(portals[i].x, portals[i].y, newPortal.x, newPortal.y,
-                        portals[link.source].x, portals[link.source].y, portals[link.target].x, portals[link.target].y)) {
-                    intersect = true;
-                    break; // Beende die Schleife, da eine Kreuzung gefunden wurde
-                }
-            }
-
-            if (!intersect) {
-                // Keine Kreuzung gefunden, füge Link hinzu (zeichnen wird zentralisiert in redrawAll)
-                const newLink = {
-                    source: i,
-                    target: newPortal.index
-                }
-                links.push(newLink);
-                // Nachdem der Link erstellt wurde, prüfe auf mögliche Felder
-                checkForNewFields(newLink);
-            }
-        }
+    function distance(p, q) {
+      const dx = p.x - q.x;
+      const dy = p.y - q.y;
+      return Math.sqrt(dx * dx + dy * dy);
     }
+    
+    function connectPortalsWithLine(newPortal) {
+      // Kein Vorgänger -> keine Links
+      if (newPortal.index === 0) return;
+
+      const anchor = portals[0];
+      const newIndex = newPortal.index;
+
+      // 1. Kandidaten sammeln: alle früheren Portale mit index < newPortal.index
+      const candidates = [];
+
+      for (let i = 0; i < newIndex; i++) {
+        const p = portals[i];
+        if (!p) continue;
+
+        // Anker speziell behandeln, alle anderen bekommen eine Distanz-Metrik
+        if (i === 0) {
+          candidates.push({
+            portalIndex: i,
+            isAnchor: true,
+            metric: Infinity // damit er sicher als erster dran ist
+          });
+        } else {
+          const d = distance(newPortal, p); // "Größe" ~ Entfernung vom Anker
+          candidates.push({
+            portalIndex: i,
+            isAnchor: false,
+            metric: d
+          });
+        }
+      }
+
+      // 2. Kandidaten sortieren:
+      //    - Anchor (metric = Infinity) kommt automatisch zuerst
+      //    - die übrigen nach absteigender Distanz zum Anker
+      candidates.sort((a, b) => b.metric - a.metric);
+
+      // 3. In dieser Reihenfolge Links versuchen (mit Crosslink-Check wie bisher)
+      for (const cand of candidates) {
+        const i = cand.portalIndex;
+        const p = portals[i];
+        if (!p) continue;
+
+        let intersectsExisting = false;
+
+        for (const link of links) {
+          const s = portals[link.source];
+          const t = portals[link.target];
+          if (!s || !t) continue;
+
+          if (
+            intersects(
+              p.x,
+              p.y,
+              newPortal.x,
+              newPortal.y,
+              s.x,
+              s.y,
+              t.x,
+              t.y
+            )
+          ) {
+            intersectsExisting = true;
+            break;
+          }
+        }
+
+        if (!intersectsExisting) {
+          const newLink = { source: i, target: newIndex };
+          links.push(newLink);
+          checkForNewFields(newLink);
+        }
+      }
+    }
+
 
     function createLinks() {
         deleteAllLinks(false); // Zurücksetzen vorhandener Links (no history push here)
