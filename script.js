@@ -39,8 +39,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Index of highlighted field (for hover), -1 = none
     let highlightedFieldIndex = -1;
+    // satelliteId of highlighted portal when hovering list (null = none)
+    let highlightedPortalSatelliteId = null;
 
-    // Ensure UI parts exist (create field list + undo/redo buttons)
+    // persistent nextSatelliteId to avoid duplicates after deletes
+    let nextSatelliteId = 0;
+
+    // Ensure UI parts exist (create field list + undo/redo)
     function ensureUIExtras() {
         // find controls area (first child div inside container that holds buttons)
         const controls = container.querySelector('div');
@@ -64,6 +69,53 @@ document.addEventListener("DOMContentLoaded", function () {
             redoBtn.disabled = true;
             redoBtn.addEventListener('click', redo);
             controls.insertBefore(redoBtn, controls.firstChild);
+        }
+
+        // Add UI improvements: Next Satellite ID display/input and Reset Satellite IDs button
+        let nsContainer = document.getElementById('nextSatContainer');
+        if (!nsContainer) {
+            nsContainer = document.createElement('div');
+            nsContainer.id = 'nextSatContainer';
+            nsContainer.style.display = 'flex';
+            nsContainer.style.alignItems = 'center';
+            nsContainer.style.gap = '6px';
+            nsContainer.style.marginTop = '6px';
+
+            const label = document.createElement('label');
+            label.textContent = 'Next Satellite ID:';
+            label.htmlFor = 'nextSatInput';
+            nsContainer.appendChild(label);
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = 'nextSatInput';
+            input.style.width = '60px';
+            input.value = nextSatelliteId;
+            input.addEventListener('change', () => {
+                const v = parseInt(input.value, 10);
+                if (!isNaN(v) && v >= 0) nextSatelliteId = v;
+            });
+            nsContainer.appendChild(input);
+
+            const resetBtn = document.createElement('button');
+            resetBtn.textContent = 'Reset Satellite IDs';
+            resetBtn.addEventListener('click', () => {
+                for (let i = 0; i < portals.length; i++) {
+                    portals[i].satelliteId = i;
+                    portals[i].orderId = i;
+                }
+                nextSatelliteId = portals.length;
+                const ns = document.getElementById('nextSatInput');
+                if (ns) ns.value = nextSatelliteId;
+                updateList();
+                deleteAllLinks(false);
+                const autoConnectCheck = document.getElementById('autoConnectCheck');
+                if (autoConnectCheck && autoConnectCheck.checked) createLinks();
+                pushState('resetSatelliteIds');
+            });
+            nsContainer.appendChild(resetBtn);
+
+            controls.appendChild(nsContainer);
         }
 
         // Field list container
@@ -99,7 +151,22 @@ document.addEventListener("DOMContentLoaded", function () {
             return reverse ? angleB - angleA : angleA - angleB;
         });
         portals.unshift(center); // Füge das Zentrum wieder hinzu
-        updateIndexesAndUI();
+
+        // Nach Sortierung: satelliteId und orderId neu zuweisen (wieder in Einklang bringen)
+        for (let i = 0; i < portals.length; i++) {
+            portals[i].satelliteId = i;
+            portals[i].orderId = i;
+        }
+        nextSatelliteId = portals.length;
+
+        updateList();
+        deleteAllLinks(false);
+        // Nach Sort evtl. Links neu erstellen (updateList -> createLinks if autoconnect)
+        const autoConnectCheck = document.getElementById('autoConnectCheck');
+        if (autoConnectCheck && autoConnectCheck.checked) {
+            createLinks();
+        }
+
         sortClockwise = !reverse;
         pushState('sortPortalsRadially');
     }
@@ -107,7 +174,18 @@ document.addEventListener("DOMContentLoaded", function () {
     function rotatePortalsLeft() {
         if (portals.length > 0) {
             portals.push(portals.shift()); // Verschiebt das erste Element ans Ende
-            updateIndexesAndUI();
+            // Nach Rotation: satelliteId und orderId neu zuweisen (wieder in Einklang bringen)
+            for (let i = 0; i < portals.length; i++) {
+                portals[i].satelliteId = i;
+                portals[i].orderId = i;
+            }
+            nextSatelliteId = portals.length;
+            updateList();
+            deleteAllLinks(false);
+            const autoConnectCheck = document.getElementById('autoConnectCheck');
+            if (autoConnectCheck && autoConnectCheck.checked) {
+                createLinks();
+            }
             pushState('rotateLeft');
         }
     }
@@ -115,14 +193,26 @@ document.addEventListener("DOMContentLoaded", function () {
     function rotatePortalsRight() {
         if (portals.length > 0) {
             portals.unshift(portals.pop()); // Verschiebt das letzte Element an den Anfang
-            updateIndexesAndUI();
+            // Nach Rotation: satelliteId und orderId neu zuweisen (wieder in Einklang bringen)
+            for (let i = 0; i < portals.length; i++) {
+                portals[i].satelliteId = i;
+                portals[i].orderId = i;
+            }
+            nextSatelliteId = portals.length;
+            updateList();
+            deleteAllLinks(false);
+            const autoConnectCheck = document.getElementById('autoConnectCheck');
+            if (autoConnectCheck && autoConnectCheck.checked) {
+                createLinks();
+            }
             pushState('rotateRight');
         }
     }
 
     function updateIndexesAndUI(force = false) {
+        // Order-Id entspricht immer der aktuellen Arrayposition (0-basiert)
         for (let i = 0; i < portals.length; i++) {
-            portals[i].index = i;
+            portals[i].orderId = i;
         }
         deleteAllLinks(false); // clear links & fields and redraw portals; false => don't push state again here
         updateList();
@@ -149,28 +239,30 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     };
 
-    function connectPortalsWithLine(newPortal) {
-        for (let i = 0; i < newPortal.index; i++) {
-            let intersect = false;
+    // Helper to connect newPortal against earlierPortals sequence,
+    // considering already existing links (to avoid intersections)
+    function connectPortalAgainstSequence(newPortal, earlierSequence) {
+        // for each earlier portal in the provided sequence, attempt to add link
+        for (let p of earlierSequence) {
+            const sourceIndex = portals.findIndex(x => x.satelliteId === p.satelliteId);
+            const targetIndex = portals.findIndex(x => x.satelliteId === newPortal.satelliteId);
+            if (sourceIndex === -1 || targetIndex === -1) continue; // safety
 
-            // Prüfe für jede bestehende Verbindung, ob die geplante Verbindung
-            // von Portal i zum neuen Portal eine bestehende Verbindung kreuzen würde.
+            let intersect = false;
             for (let link of links) {
-                if (intersects(portals[i].x, portals[i].y, newPortal.x, newPortal.y,
+                if (intersects(portals[sourceIndex].x, portals[sourceIndex].y, portals[targetIndex].x, portals[targetIndex].y,
                         portals[link.source].x, portals[link.source].y, portals[link.target].x, portals[link.target].y)) {
                     intersect = true;
-                    break; // Beende die Schleife, da eine Kreuzung gefunden wurde
+                    break;
                 }
             }
 
             if (!intersect) {
-                // Keine Kreuzung gefunden, füge Link hinzu (zeichnen wird zentralisiert in redrawAll)
                 const newLink = {
-                    source: i,
-                    target: newPortal.index
-                }
+                    source: sourceIndex,
+                    target: targetIndex
+                };
                 links.push(newLink);
-                // Nachdem der Link erstellt wurde, prüfe auf mögliche Felder
                 checkForNewFields(newLink);
             }
         }
@@ -178,9 +270,23 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function createLinks() {
         deleteAllLinks(false); // Zurücksetzen vorhandener Links (no history push here)
-        for (let portal of portals) {
-            connectPortalsWithLine(portal);
-        };
+
+        // FIRST PASS: work by satelliteId ordering (ascending)
+        const satelliteOrder = portals.slice().sort((a, b) => a.satelliteId - b.satelliteId);
+        for (let i = 0; i < satelliteOrder.length; i++) {
+            const newPortal = satelliteOrder[i];
+            const earlier = satelliteOrder.slice(0, i);
+            connectPortalAgainstSequence(newPortal, earlier);
+        }
+
+        // SECOND PASS: work by orderId ordering (array/list order)
+        const orderSequence = portals.slice().sort((a, b) => a.orderId - b.orderId);
+        for (let i = 0; i < orderSequence.length; i++) {
+            const newPortal = orderSequence[i];
+            const earlier = orderSequence.slice(0, i);
+            connectPortalAgainstSequence(newPortal, earlier);
+        }
+
         // Nach dem Erstellen aller Links: Feldanzahl aktualisieren und redraw
         updateFieldCount();
         redrawAll();
@@ -239,13 +345,18 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     function addPortal(x, y) {
-
-        const newPortalIndex = portals.length;
+        // satelliteId automatically from nextSatelliteId (persistent)
+        const newSatelliteId = nextSatelliteId++;
         const newPortal = {
-            index: newPortalIndex,
+            satelliteId: newSatelliteId,
+            orderId: portals.length, // initial position at end
             x: x,
             y: y
         };
+
+        // Update nextSat input if present
+        const ns = document.getElementById('nextSatInput');
+        if (ns) ns.value = nextSatelliteId;
 
         // Füge das neue Portal zu deiner Liste hinzu
         portals.push(newPortal);
@@ -265,8 +376,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 break;
             }
         }
-        redrawAll();
-        updateList();
+        // After removal, recalc orderIds and update UI
+        updateIndexesAndUI();
         pushState('removePortal');
     }
 
@@ -282,12 +393,14 @@ document.addEventListener("DOMContentLoaded", function () {
         ctx.textBaseline = 'middle';
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 4;
-        ctx.strokeText(portal.index, portal.x, portal.y);
+        // Beschriftung zeigt satelliteId (sichtbare ID)
+        ctx.strokeText(portal.satelliteId, portal.x, portal.y);
         ctx.fillStyle = hexToRGBA(portalColor, portalTransparency);
-        ctx.fillText(portal.index, portal.x, portal.y);
+        ctx.fillText(portal.satelliteId, portal.x, portal.y);
         ctx.lineWidth = 2;
 
-        if (portal.index === 0) {
+        // Highlighting when it's the "center" (satelliteId==0) OR when hovered in the list
+        if (portal.satelliteId === 0) {
             const highlightRadius = drawPortalSymbolRadius + 4; // 4px größer als der Radius des Portals
             ctx.strokeStyle = hexToRGBA(highlightColor, highlightTransparency);
             ctx.lineWidth = 2; // Die Linienbreite für den Kreis
@@ -296,6 +409,16 @@ document.addEventListener("DOMContentLoaded", function () {
             ctx.stroke();
             ctx.closePath();
         };
+
+        if (highlightedPortalSatelliteId !== null && portal.satelliteId === highlightedPortalSatelliteId) {
+            const highlightRadius = drawPortalSymbolRadius + 6;
+            ctx.strokeStyle = hexToRGBA(highlightColor, Math.min(1, highlightTransparency + 0.3));
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(portal.x, portal.y, highlightRadius, 0, 2 * Math.PI, false);
+            ctx.stroke();
+            ctx.closePath();
+        }
     }
 
     function redrawAll() {
@@ -362,12 +485,17 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function updateList() {
         listBody.innerHTML = ''; // Bereinige die bestehende Liste
-        portals.forEach(portal => {
+        portals.forEach((portal, idx) => {
             const row = document.createElement('tr'); // Erstelle eine neue Zeile
+            row.draggable = true;
 
-            const indexCell = document.createElement('td');
-            indexCell.textContent = portal.index;
-            row.appendChild(indexCell);
+            const orderCell = document.createElement('td');
+            orderCell.textContent = portal.orderId;
+            row.appendChild(orderCell);
+
+            const satCell = document.createElement('td');
+            satCell.textContent = portal.satelliteId;
+            row.appendChild(satCell);
 
             const xCell = document.createElement('td');
             xCell.textContent = portal.x;
@@ -377,8 +505,83 @@ document.addEventListener("DOMContentLoaded", function () {
             yCell.textContent = portal.y;
             row.appendChild(yCell);
 
+            // Hover -> highlight portal on canvas
+            row.addEventListener('mouseenter', () => {
+                highlightedPortalSatelliteId = portal.satelliteId;
+                redrawAll();
+            });
+            row.addEventListener('mouseleave', () => {
+                highlightedPortalSatelliteId = null;
+                redrawAll();
+            });
+
+            // Drag&Drop handlers
+            row.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', portal.satelliteId.toString());
+                e.dataTransfer.effectAllowed = 'move';
+                try {
+                    e.dataTransfer.setDragImage(row, 0, 0);
+                } catch (err) {
+                    // ignore if not supported
+                }
+                // visual cue
+                row.style.opacity = '0.5';
+                row.classList.add('dragging');
+            });
+            row.addEventListener('dragend', (e) => {
+                row.classList.remove('dragging');
+                row.style.opacity = '';
+            });
+
+            row.addEventListener('dragover', (e) => {
+                e.preventDefault(); // allow drop
+                row.classList.add('dragover');
+                row.style.background = '#f0f8ff';
+            });
+            row.addEventListener('dragleave', (e) => {
+                row.classList.remove('dragover');
+                row.style.background = '';
+            });
+            row.addEventListener('drop', (e) => {
+                e.preventDefault();
+                row.classList.remove('dragover');
+                row.style.background = '';
+                const draggedSat = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                const targetSat = portal.satelliteId;
+                if (isNaN(draggedSat) || draggedSat === targetSat) return;
+
+                // Reorder portals array: move dragged portal to position of target (before target)
+                const draggedIndex = portals.findIndex(p => p.satelliteId === draggedSat);
+                const targetIndex = portals.findIndex(p => p.satelliteId === targetSat);
+                if (draggedIndex === -1 || targetIndex === -1) return;
+
+                const [draggedPortal] = portals.splice(draggedIndex, 1);
+                // if draggedIndex < targetIndex after splice targetIndex decreases by 1
+                let insertIndex = targetIndex;
+                if (draggedIndex < targetIndex) insertIndex = targetIndex;
+                portals.splice(insertIndex, 0, draggedPortal);
+
+                // After reorder, update orderId for all
+                for (let i = 0; i < portals.length; i++) portals[i].orderId = i;
+
+                updateList();
+                redrawAll();
+
+                // Recreate links only if autoconnect is enabled
+                const autoConnectCheck = document.getElementById('autoConnectCheck');
+                if (autoConnectCheck && autoConnectCheck.checked) {
+                    createLinks();
+                }
+
+                pushState('reorderPortals');
+            });
+
             listBody.appendChild(row); // Füge die Zeile zum Tabellenkörper hinzu
         });
+
+        // update nextSat input
+        const ns = document.getElementById('nextSatInput');
+        if (ns) ns.value = nextSatelliteId;
     }
 
     // Fields helpers
@@ -492,200 +695,4 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Neue Funktion: aktualisiert die Feldanzahl in der UI
     function updateFieldCount() {
-        const el = document.getElementById('fieldCount');
-        if (el) {
-            el.textContent = fields.length;
-        }
-        if (undoBtn) {
-            undoBtn.disabled = historyIndex <= 0;
-        }
-        if (redoBtn) {
-            redoBtn.disabled = historyIndex >= history.length - 1;
-        }
-    }
-
-    function updateFieldList() {
-        ensureUIExtras();
-        const list = document.getElementById('fieldList');
-        if (!list) return;
-        list.innerHTML = '';
-        fields.forEach((f, idx) => {
-            const row = document.createElement('div');
-            row.className = 'fieldRow';
-            row.style.padding = '4px';
-            row.style.borderBottom = '1px solid #ddd';
-            row.style.cursor = 'pointer';
-            row.textContent = `#${idx}: ${f[0]}, ${f[1]}, ${f[2]}`;
-            row.addEventListener('mouseenter', () => {
-                highlightedFieldIndex = idx;
-                redrawAll();
-            });
-            row.addEventListener('mouseleave', () => {
-                highlightedFieldIndex = -1;
-                redrawAll();
-            });
-            list.appendChild(row);
-        });
-    }
-
-    // Event-Listener für Farbauswahl
-    document.getElementById('portalColorPicker').addEventListener('change', function () {
-        portalColor = this.value;
-        updateIndexesAndUI(true);
-        pushState('portalColorChange');
-    });
-
-    document.getElementById('linkColorPicker').addEventListener('change', function () {
-        linkColor = this.value;
-        updateIndexesAndUI(true);
-        pushState('linkColorChange');
-    });
-
-    document.getElementById('fieldColorPicker').addEventListener('change', function () {
-        fieldColor = this.value;
-        updateIndexesAndUI(true);
-        pushState('fieldColorChange');
-    });
-
-    document.getElementById('highlightColorPicker').addEventListener('change', function () {
-        highlightColor = this.value;
-        updateIndexesAndUI(true);
-        pushState('highlightColorChange');
-    });
-
-    // Verwende die Farbvariablen beim Zeichnen
-    // Beispiel: ctx.fillStyle = portalColor; beim Zeichnen eines Portals
-
-    document.getElementById('fieldTransparencySlider').addEventListener('input', function () {
-        // Aktualisiere die Feld-Transparenz basierend auf dem Slider-Wert
-        fieldTransparency = parseFloat(this.value);
-        document.getElementById('transparencyValue').textContent = fieldTransparency;
-        updateIndexesAndUI(true);
-        pushState('fieldTransparencyChange');
-    });
-
-    document.getElementById('presetENL').addEventListener('click', () => { colorPreset('ENL'); pushState('presetENL'); });
-    document.getElementById('presetRES').addEventListener('click', () => { colorPreset('RES'); pushState('presetRES'); });
-    document.getElementById('presetMAC').addEventListener('click', () => { colorPreset('MAC'); pushState('presetMAC'); });
-    document.getElementById('presetNTR').addEventListener('click', () => { colorPreset('NTR'); pushState('presetNTR'); });
-
-    function colorPreset(faction) {
-      let color;
-        switch (faction) {
-        case 'ENL':
-            color = '#00FF00';
-            break;
-        case 'RES':
-            color = '#0000FF';
-            break;
-        case 'MAC':
-            color = '#FF0000';
-            break;
-        case 'NTR':
-            color = '#FFFFFF';
-            break;
-        default:
-            // abort
-            return;
-        };
-        portalColor = color;
-        document.getElementById('portalColorPicker').value = color;
-        
-        linkColor = color;
-        document.getElementById('linkColorPicker').value = color;
-        
-        fieldColor = color;
-        document.getElementById('fieldColorPicker').value = color;
-        
-        updateIndexesAndUI(true);
-    }
-
-    // History functions (undo/redo)
-
-    function getStateSnapshot() {
-        // lightweight deep clone using JSON since structures are simple ints + coords + colors
-        return JSON.parse(JSON.stringify({
-            portals,
-            links,
-            fields,
-            portalColor,
-            linkColor,
-            fieldColor,
-            fieldTransparency,
-            highlightColor,
-            highlightTransparency,
-            sortClockwise
-        }));
-    }
-
-    function restoreState(snapshot) {
-        portals = snapshot.portals || [];
-        links = snapshot.links || [];
-        fields = snapshot.fields || [];
-        portalColor = snapshot.portalColor || portalColor;
-        linkColor = snapshot.linkColor || linkColor;
-        fieldColor = snapshot.fieldColor || fieldColor;
-        fieldTransparency = typeof snapshot.fieldTransparency === 'number' ? snapshot.fieldTransparency : fieldTransparency;
-        highlightColor = snapshot.highlightColor || highlightColor;
-        highlightTransparency = typeof snapshot.highlightTransparency === 'number' ? snapshot.highlightTransparency : highlightTransparency;
-        sortClockwise = typeof snapshot.sortClockwise === 'boolean' ? snapshot.sortClockwise : sortClockwise;
-
-        // restore UI controls values if present
-        const pc = document.getElementById('portalColorPicker');
-        if (pc) pc.value = portalColor;
-        const lc = document.getElementById('linkColorPicker');
-        if (lc) lc.value = linkColor;
-        const fc = document.getElementById('fieldColorPicker');
-        if (fc) fc.value = fieldColor;
-        const hC = document.getElementById('highlightColorPicker');
-        if (hC) hC.value = highlightColor;
-        const ft = document.getElementById('fieldTransparencySlider');
-        if (ft) ft.value = fieldTransparency;
-        const tv = document.getElementById('transparencyValue');
-        if (tv) tv.textContent = fieldTransparency;
-
-        // reindex portals
-        for (let i = 0; i < portals.length; i++) portals[i].index = i;
-
-        highlightedFieldIndex = -1;
-        redrawAll();
-        updateList();
-        updateFieldCount();
-        updateFieldList();
-    }
-
-    function pushState(description) {
-        // remove any redo states
-        if (historyIndex < history.length - 1) {
-            history.splice(historyIndex + 1);
-        }
-        history.push(getStateSnapshot());
-        if (history.length > HISTORY_LIMIT) history.shift();
-        historyIndex = history.length - 1;
-        updateFieldCount();
-    }
-
-    function undo() {
-        if (historyIndex <= 0) return;
-        historyIndex--;
-        const snapshot = history[historyIndex];
-        if (snapshot) {
-            restoreState(snapshot);
-            updateFieldCount();
-        }
-    }
-
-    function redo() {
-        if (historyIndex >= history.length - 1) return;
-        historyIndex++;
-        const snapshot = history[historyIndex];
-        if (snapshot) {
-            restoreState(snapshot);
-            updateFieldCount();
-        }
-    }
-
-    // initialize history with initial empty state
-    pushState('initial');
-
-});
+        const el = document.getElementBy
