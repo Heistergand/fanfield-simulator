@@ -695,4 +695,208 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Neue Funktion: aktualisiert die Feldanzahl in der UI
     function updateFieldCount() {
-        const el = document.getElementBy
+        const el = document.getElementById('fieldCount');
+        if (el) {
+            el.textContent = fields.length;
+        }
+        if (undoBtn) {
+            undoBtn.disabled = historyIndex <= 0;
+        }
+        if (redoBtn) {
+            redoBtn.disabled = historyIndex >= history.length - 1;
+        }
+    }
+
+    function updateFieldList() {
+        ensureUIExtras();
+        const list = document.getElementById('fieldList');
+        if (!list) return;
+        list.innerHTML = '';
+        fields.forEach((f, idx) => {
+            const row = document.createElement('div');
+            row.className = 'fieldRow';
+            row.style.padding = '4px';
+            row.style.borderBottom = '1px solid #ddd';
+            row.style.cursor = 'pointer';
+            row.textContent = `#${idx}: ${f[0]}, ${f[1]}, ${f[2]}`;
+            row.addEventListener('mouseenter', () => {
+                highlightedFieldIndex = idx;
+                redrawAll();
+            });
+            row.addEventListener('mouseleave', () => {
+                highlightedFieldIndex = -1;
+                redrawAll();
+            });
+            list.appendChild(row);
+        });
+    }
+
+    // Event-Listener für Farbauswahl
+    document.getElementById('portalColorPicker').addEventListener('change', function () {
+        portalColor = this.value;
+        updateIndexesAndUI(true);
+        pushState('portalColorChange');
+    });
+
+    document.getElementById('linkColorPicker').addEventListener('change', function () {
+        linkColor = this.value;
+        updateIndexesAndUI(true);
+        pushState('linkColorChange');
+    });
+
+    document.getElementById('fieldColorPicker').addEventListener('change', function () {
+        fieldColor = this.value;
+        updateIndexesAndUI(true);
+        pushState('fieldColorChange');
+    });
+
+    document.getElementById('highlightColorPicker').addEventListener('change', function () {
+        highlightColor = this.value;
+        updateIndexesAndUI(true);
+        pushState('highlightColorChange');
+    });
+
+    // Verwende die Farbvariablen beim Zeichnen
+    // Beispiel: ctx.fillStyle = portalColor; beim Zeichnen eines Portals
+
+    document.getElementById('fieldTransparencySlider').addEventListener('input', function () {
+        // Aktualisiere die Feld-Transparenz basierend auf dem Slider-Wert
+        fieldTransparency = parseFloat(this.value);
+        document.getElementById('transparencyValue').textContent = fieldTransparency;
+        updateIndexesAndUI(true);
+        pushState('fieldTransparencyChange');
+    });
+
+    document.getElementById('presetENL').addEventListener('click', () => { colorPreset('ENL'); pushState('presetENL'); });
+    document.getElementById('presetRES').addEventListener('click', () => { colorPreset('RES'); pushState('presetRES'); });
+    document.getElementById('presetMAC').addEventListener('click', () => { colorPreset('MAC'); pushState('presetMAC'); });
+    document.getElementById('presetNTR').addEventListener('click', () => { colorPreset('NTR'); pushState('presetNTR'); });
+
+    function colorPreset(faction) {
+      let color;
+        switch (faction) {
+        case 'ENL':
+            color = '#00FF00';
+            break;
+        case 'RES':
+            color = '#0000FF';
+            break;
+        case 'MAC':
+            color = '#FF0000';
+            break;
+        case 'NTR':
+            color = '#FFFFFF';
+            break;
+        default:
+            // abort
+            return;
+        };
+        portalColor = color;
+        document.getElementById('portalColorPicker').value = color;
+        
+        linkColor = color;
+        document.getElementById('linkColorPicker').value = color;
+        
+        fieldColor = color;
+        document.getElementById('fieldColorPicker').value = color;
+        
+        updateIndexesAndUI(true);
+    }
+
+    // History functions (undo/redo)
+
+    function getStateSnapshot() {
+        // lightweight deep clone using JSON since structures are simple ints + coords + colors
+        return JSON.parse(JSON.stringify({
+            portals,
+            links,
+            fields,
+            portalColor,
+            linkColor,
+            fieldColor,
+            fieldTransparency,
+            highlightColor,
+            highlightTransparency,
+            sortClockwise,
+            nextSatelliteId
+        }));
+    }
+
+    function restoreState(snapshot) {
+        portals = snapshot.portals || [];
+        links = snapshot.links || [];
+        fields = snapshot.fields || [];
+        portalColor = snapshot.portalColor || portalColor;
+        linkColor = snapshot.linkColor || linkColor;
+        fieldColor = snapshot.fieldColor || fieldColor;
+        fieldTransparency = typeof snapshot.fieldTransparency === 'number' ? snapshot.fieldTransparency : fieldTransparency;
+        highlightColor = snapshot.highlightColor || highlightColor;
+        highlightTransparency = typeof snapshot.highlightTransparency === 'number' ? snapshot.highlightTransparency : highlightTransparency;
+        sortClockwise = typeof snapshot.sortClockwise === 'boolean' ? snapshot.sortClockwise : sortClockwise;
+        nextSatelliteId = typeof snapshot.nextSatelliteId === 'number' ? snapshot.nextSatelliteId : nextSatelliteId;
+
+        // restore UI controls values if present
+        const pc = document.getElementById('portalColorPicker');
+        if (pc) pc.value = portalColor;
+        const lc = document.getElementById('linkColorPicker');
+        if (lc) lc.value = linkColor;
+        const fc = document.getElementById('fieldColorPicker');
+        if (fc) fc.value = fieldColor;
+        const hC = document.getElementById('highlightColorPicker');
+        if (hC) hC.value = highlightColor;
+        const ft = document.getElementById('fieldTransparencySlider');
+        if (ft) ft.value = fieldTransparency;
+        const tv = document.getElementById('transparencyValue');
+        if (tv) tv.textContent = fieldTransparency;
+
+        // Note: portal.orderId is considered position; the snapshot stores the portals array order,
+        // but to keep consistent with earlier behaviour we set orderId = array position after restore
+        for (let i = 0; i < portals.length; i++) {
+            portals[i].orderId = i;
+            // ensure satelliteId exists (fallback to i if missing)
+            if (typeof portals[i].satelliteId !== 'number') portals[i].satelliteId = i;
+        }
+
+        highlightedFieldIndex = -1;
+        highlightedPortalSatelliteId = null;
+        redrawAll();
+        updateList();
+        updateFieldCount();
+        updateFieldList();
+    }
+
+    function pushState(description) {
+        // remove any redo states
+        if (historyIndex < history.length - 1) {
+            history.splice(historyIndex + 1);
+        }
+        history.push(getStateSnapshot());
+        if (history.length > HISTORY_LIMIT) history.shift();
+        historyIndex = history.length - 1;
+        updateFieldCount();
+    }
+
+    function undo() {
+        if (historyIndex <= 0) return;
+        historyIndex--;
+        const snapshot = history[historyIndex];
+        if (snapshot) {
+            restoreState(snapshot);
+            updateFieldCount();
+        }
+    }
+
+    function redo() {
+        if (historyIndex >= history.length - 1) return;
+        historyIndex++;
+        const snapshot = history[historyIndex];
+        if (snapshot) {
+            restoreState(snapshot);
+            updateFieldCount();
+        }
+    }
+
+    // initialize history with initial empty state
+    pushState('initial');
+
+});
