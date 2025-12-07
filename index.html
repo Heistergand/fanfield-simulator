@@ -1,65 +1,81 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <title>Canvas and Portal List</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fanfield Simulator</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div id="container">
-        <canvas id="canvas"></canvas>
-        <div>
-            <button id="sortPortals">Sort</button>
-            <button id="rotateLeftBtn"> ← shift</button>
-            <button id="rotateRightBtn"> shift → </button>
-            <button id="connectPortals">Connect Portals</button>
-            <button id="deleteLinks">Delete Links</button>
-            <button id="deletePortals">Delete Portals</button><br>
-            <label>
-                <input type="checkbox" id="autoConnectCheck"> Connect Immediately
-            </label>
-        <br>
-        <div id="colorSettings">
-            <label>Portal color: <input type="color" id="portalColorPicker" value="#FFFF00"></label><br>
-            <label>Link color: <input type="color" id="linkColorPicker" value="#FFFF00"></label><br>
-            <label>Field color: <input type="color" id="fieldColorPicker" value="#FFFF00"></label><br>
-            <label>Highlight color: <input type="color" id="highlightColorPicker" value="#FFFFFF"></label><br>
-        </div>
-        <br>
-        <div>
-            <label for="fieldTransparencySlider">Field Transparancy:</label>
-            <input type="range" id="fieldTransparencySlider" min="0" max="1" step="0.01" value="0.15">
-            <span id="transparencyValue">0.15</span>
-        </div>
-        <br>
-        <label for="presets">Presets:</label>
-        <div id="presets"> 
-            <button id="presetENL">ENL</button>
-            <button id="presetRES">RES</button>
-            <button id="presetMAC">MACHINA</button>
-            <button id="presetNTR">NEUTRAL</button>
-        </div>
+  <div id="container">
+    <div id="controls">
+      <!-- Buttons -->
+      <button id="sortPortals">Sort</button>
+      <button id="rotateLeftBtn">Rotate Left</button>
+      <button id="rotateRightBtn">Rotate Right</button>
+      <button id="connectPortals">Create Links</button>
+      <button id="deleteLinks">Delete Links</button>
+      <button id="deletePortals">Delete Portals</button>
 
-        <br>
-        
-        <div id="stats">
-            <strong>Field Count:</strong> <span id="fieldCount">0</span>
-        </div>
-            
-        </div>
-        <div id="portalList">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Index</th>
-                        <th>X</th>
-                        <th>Y</th>
-                    </tr>
-                </thead>
-                <tbody id="listBody"></tbody>
-            </table>
-        </div>
+      <!-- Auto connect -->
+      <label style="margin-left:8px;">
+        <input type="checkbox" id="autoConnectCheck" /> Auto Connect
+      </label>
+
+      <!-- Color pickers -->
+      <label>Portal: <input id="portalColorPicker" type="color" value="#ffff00" /></label>
+      <label>Link: <input id="linkColorPicker" type="color" value="#ffff00" /></label>
+      <label>Field: <input id="fieldColorPicker" type="color" value="#ffff00" /></label>
+      <label>Highlight: <input id="highlightColorPicker" type="color" value="#ffffff" /></label>
+
+      <!-- Transparency slider -->
+      <label>Field Transparency:
+        <input id="fieldTransparencySlider" type="range" min="0" max="1" step="0.01" value="0.15" />
+        <span id="transparencyValue">0.15</span>
+      </label>
+
+      <!-- Presets -->
+      <button id="presetENL">ENL</button>
+      <button id="presetRES">RES</button>
+      <button id="presetMAC">MAC</button>
+      <button id="presetNTR">NTR</button>
+
+      <!-- Field count -->
+      <div style="display:inline-block; margin-left:8px;">
+        Fields: <span id="fieldCount">0</span>
+      </div>
     </div>
-    <script src="script.js"></script>
+
+    <div style="display:flex; gap:12px; margin-top:10px;">
+      <!-- Canvas area -->
+      <div id="canvasArea" style="flex:0 0 60%;">
+        <canvas id="canvas" style="width:100%; height:500px; border:1px solid #ccc;"></canvas>
+      </div>
+
+      <!-- Right area: list and extras -->
+      <div style="flex:1 1 40%;">
+        <!-- Next Satellite ID and Reset button (injected by script if not present) -->
+        <!-- Portal list table -->
+        <table id="portalTable" class="portal-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Satellite ID</th>
+              <th>X</th>
+              <th>Y</th>
+            </tr>
+          </thead>
+          <tbody id="listBody">
+            <!-- rows injected by script -->
+          </tbody>
+        </table>
+
+        <!-- Field list container is created by script if missing -->
+        <div id="fieldListContainerPlaceholder"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
 </body>
 </html>
