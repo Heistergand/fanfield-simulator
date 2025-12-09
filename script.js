@@ -40,6 +40,38 @@ document.addEventListener("DOMContentLoaded", function () {
     // Index of highlighted field (for hover), -1 = none
     let highlightedFieldIndex = -1;
 
+    // animation flags
+    let isSimulating = false;
+    let simulationFastForward = false;
+    
+    let visibleLinksCount = null;
+    let visibleFieldsCount = null;
+    
+    let delayPerObjectSeconds = 1.0; // wird vom UI gesetzt
+
+    const simulateButton = document.getElementById('btn-simulate');
+    const speedSelect = document.getElementById('select-speed');
+    
+    speedSelect.addEventListener('change', (e) => {
+      const value = parseFloat(e.target.value);
+      delayPerObjectSeconds = isNaN(value) ? 1.0 : value;
+    });
+    
+    function setSimulationUiState(isRunning) {
+      const allControls = document.querySelectorAll('button, input, select');
+    
+      allControls.forEach(el => {
+        // Simulation-Button wird speziell behandelt
+        if (el === simulateButton) {
+          el.disabled = false; // bleibt klickbar
+          el.textContent = isRunning ? 'Stop' : 'Simulate';
+        } else {
+          el.disabled = isRunning;
+        }
+      });
+    }
+
+
     // Ensure UI parts exist (create field list + undo/redo buttons)
     function ensureUIExtras() {
         // find controls area (first child div inside container that holds buttons)
