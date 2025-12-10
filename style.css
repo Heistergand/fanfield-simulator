@@ -63,6 +63,13 @@ th {
   cursor: default;
 }
 
+button:disabled,
+input:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 #fieldListContainer {
   background: #fff;
   border: 1px solid #eee;
