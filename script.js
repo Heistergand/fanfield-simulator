@@ -27,6 +27,13 @@ document.addEventListener("DOMContentLoaded", function () {
     let fields = []; // array of [a,b,c] triplets
     let sortClockwise = true;
 
+    // Simulation state
+    let isSimulating = false;
+    let simulationFastForward = false;
+    let visibleLinksCount = null;   // null => all links
+    let visibleFieldsCount = null;  // null => all fields
+    let delayPerObjectSeconds = 0.4; // Default 0.4s
+
     // History for undo/redo
     const history = [];
     let historyIndex = -1;
@@ -177,7 +184,9 @@ document.addEventListener("DOMContentLoaded", function () {
             metric: Infinity // damit er sicher als erster dran ist
           });
         } else {
-          const d = distance(newPortal, p); // "Größe" ~ Entfernung vom Anker
+          var d = distance(newPortal, p); // "Größe" ~ Entfernung vom Anker
+          d += distance(anchor, p);
+
           candidates.push({
             portalIndex: i,
             isAnchor: false,
@@ -268,6 +277,341 @@ document.addEventListener("DOMContentLoaded", function () {
     document.getElementById('rotateLeftBtn').addEventListener('click', rotatePortalsLeft);
     document.getElementById('rotateRightBtn').addEventListener('click', rotatePortalsRight);
 
+    const simulateButton = document.getElementById('simulateBtn');
+    const simulateSpeedSelect = document.getElementById('simulateSpeed');
+
+    if (simulateSpeedSelect) {
+        const value = parseFloat(simulateSpeedSelect.value);
+        delayPerObjectSeconds = isNaN(value) ? 0.4 : value;
+        simulateSpeedSelect.addEventListener('change', function () {
+            const newValue = parseFloat(this.value);
+            delayPerObjectSeconds = isNaN(newValue) ? 0.4 : newValue;
+        });
+    }
+
+    if (simulateButton) {
+        simulateButton.addEventListener('click', function () {
+            if (isSimulating) {
+                // Stop: rest ohne Verzögerung
+                simulationFastForward = true;
+            } else {
+                simulateBuild();
+            }
+        });
+    }
+
+    function setSimulationUiState(isRunning) {
+        const allControls = container.querySelectorAll('button, input, select');
+        allControls.forEach(el => {
+            if (el === simulateButton) {
+                el.disabled = false;
+                el.textContent = isRunning ? 'Stop' : 'Simulate';
+            } else if (el === simulateSpeedSelect) {
+                el.disabled = isRunning;
+            } else {
+                el.disabled = isRunning;
+            }
+        });
+    }
+
+    // Hilfsfunktion: allgemeiner Feld-Vergleich in beliebigem Array
+    function sameFieldExistsInArray(triplet, fieldsArray) {
+        const sortedNew = triplet.slice().sort((a,b)=>a-b).join(',');
+        for (let f of fieldsArray) {
+            if (f.slice().sort((a,b)=>a-b).join(',') === sortedNew) return true;
+        }
+        return false;
+    }
+
+    function sameFieldExists(triplet) {
+        return sameFieldExistsInArray(triplet, fields);
+    }
+
+    // Fields helpers
+
+    function pointIsOnLeftSideOfLine(x1, y1, x2, y2, px, py) {
+        return ((x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)) > 0;
+    }
+
+    function calculateTriangleArea(x1, y1, x2, y2, x3, y3) {
+        return Math.abs((x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2)) / 2.0);
+    }
+
+    // generische Feldberechnung für einen Link auf beliebigen Arrays
+    function getNewFieldsFromLink(newLink, portalsArr, linksArr, fieldsArr) {
+        let sourceLinks = linksArr.filter(link => link.source === newLink.source || link.target === newLink.source);
+        let targetLinks = linksArr.filter(link => link.source === newLink.target || link.target === newLink.target);
+
+        let potentialFields = [];
+
+        sourceLinks.forEach(sLink => {
+            targetLinks.forEach(tLink => {
+                let sharedPortal = sLink.source === newLink.source ? sLink.target : sLink.source;
+                if ((tLink.source === newLink.target && tLink.target === sharedPortal) || (tLink.target === newLink.target && tLink.source === sharedPortal)) {
+                    if (!potentialFields.includes(sharedPortal)) {
+                        potentialFields.push(sharedPortal);
+                    }
+                }
+            });
+        });
+
+        let potentialFieldsLeft = [];
+        let potentialFieldsRight = [];
+
+        potentialFields.forEach(portalIndex => {
+            if (pointIsOnLeftSideOfLine(
+                portalsArr[newLink.source].x, portalsArr[newLink.source].y,
+                portalsArr[newLink.target].x, portalsArr[newLink.target].y,
+                portalsArr[portalIndex].x, portalsArr[portalIndex].y
+            )) {
+                potentialFieldsLeft.push(portalIndex);
+            } else {
+                potentialFieldsRight.push(portalIndex);
+            }
+        });
+
+        const newFields = [];
+
+        function pickLargest(potentialList) {
+            let largestArea = 0;
+            let bestThirdPointIndex = -1;
+
+            potentialList.forEach(pointIndex => {
+                let area = calculateTriangleArea(
+                    portalsArr[newLink.source].x, portalsArr[newLink.source].y,
+                    portalsArr[newLink.target].x, portalsArr[newLink.target].y,
+                    portalsArr[pointIndex].x, portalsArr[pointIndex].y
+                );
+
+                if (area > largestArea) {
+                    largestArea = area;
+                    bestThirdPointIndex = pointIndex;
+                }
+            });
+
+            if (bestThirdPointIndex !== -1) {
+                const triplet = [newLink.source, newLink.target, bestThirdPointIndex];
+                if (!sameFieldExistsInArray(triplet, fieldsArr)) {
+                    newFields.push(triplet);
+                }
+            }
+        }
+
+        // größte Felder links und rechts
+        pickLargest(potentialFieldsLeft);
+        pickLargest(potentialFieldsRight);
+
+        return newFields;
+    }
+
+    function checkForNewFields(newLink) {
+        const newFs = getNewFieldsFromLink(newLink, portals, links, fields);
+        if (newFs.length === 0) return;
+        newFs.forEach(triplet => fields.push(triplet));
+        updateFieldCount();
+        updateFieldList();
+        redrawAll();
+    }
+
+    // Alte Hilfsfunktionen bleiben (derzeit ungenutzt, aber harmlos)
+    function determineAndDrawLargestField(newLink, potentialFields, isLeftSide) {
+        let largestArea = 0;
+        let bestThirdPointIndex = -1;
+
+        potentialFields.forEach(pointIndex => {
+            let area = calculateTriangleArea(
+                    portals[newLink.source].x, portals[newLink.source].y,
+                    portals[newLink.target].x, portals[newLink.target].y,
+                    portals[pointIndex].x, portals[pointIndex].y);
+
+            if (area > largestArea) {
+                largestArea = area;
+                bestThirdPointIndex = pointIndex;
+            }
+        });
+
+        if (bestThirdPointIndex !== -1) {
+            const triplet = [newLink.source, newLink.target, bestThirdPointIndex];
+            if (!sameFieldExists(triplet)) {
+                fields.push(triplet); // Speichere das Feld (order-preserving)
+                updateFieldCount();
+                updateFieldList();
+                redrawAll();
+            }
+        }
+    }
+
+    function drawField(sourceIndex, targetIndex, thirdPointIndex) {
+        ctx.fillStyle = hexToRGBA(fieldColor, fieldTransparency);
+        ctx.beginPath();
+        ctx.moveTo(portals[sourceIndex].x, portals[sourceIndex].y);
+        ctx.lineTo(portals[targetIndex].x, portals[targetIndex].y);
+        ctx.lineTo(portals[thirdPointIndex].x, portals[thirdPointIndex].y);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // Simulation: Events entsprechend dem realen Algorithmus erzeugen
+    function buildSimulationEvents() {
+        const simPortals = portals.map(p => ({ index: p.index, x: p.x, y: p.y }));
+        const simLinks = [];
+        const simFields = [];
+        const events = [];
+
+        function simConnectPortalsWithLine(newPortal) {
+            if (newPortal.index === 0) return;
+
+            const newIndex = newPortal.index;
+
+            const candidates = [];
+
+            for (let i = 0; i < newIndex; i++) {
+                const p = simPortals[i];
+                const anchor = simPortals[0];
+                if (!p) continue;
+
+                if (i === 0) {
+                    candidates.push({
+                        portalIndex: i,
+                        isAnchor: true,
+                        metric: Infinity
+                    });
+                } else {
+                    var d = distance(newPortal, p);
+                    d += distance(anchor, p);
+
+                    candidates.push({
+                        portalIndex: i,
+                        isAnchor: false,
+                        metric: d
+                    });
+                }
+            }
+
+            candidates.sort((a, b) => b.metric - a.metric);
+
+            for (const cand of candidates) {
+                const i = cand.portalIndex;
+                const p = simPortals[i];
+                if (!p) continue;
+
+                let intersectsExisting = false;
+
+                for (const link of simLinks) {
+                    const s = simPortals[link.source];
+                    const t = simPortals[link.target];
+                    if (!s || !t) continue;
+
+                    if (intersects(
+                        p.x,
+                        p.y,
+                        newPortal.x,
+                        newPortal.y,
+                        s.x,
+                        s.y,
+                        t.x,
+                        t.y
+                    )) {
+                        intersectsExisting = true;
+                        break;
+                    }
+                }
+
+                if (!intersectsExisting) {
+                    const newLink = { source: i, target: newIndex };
+                    simLinks.push(newLink);
+                    events.push({ type: 'link', link: newLink });
+
+                    const newFs = getNewFieldsFromLink(newLink, simPortals, simLinks, simFields);
+                    if (newFs.length > 0) {
+                        newFs.forEach(triplet => {
+                            simFields.push(triplet);
+                            events.push({ type: 'field', field: triplet });
+                        });
+                    }
+                }
+            }
+        }
+
+        for (let portal of simPortals) {
+            simConnectPortalsWithLine(portal);
+        }
+
+        return events;
+    }
+
+    function sleepWithFastForward(ms) {
+        if (ms <= 0) return Promise.resolve();
+        const interval = 50;
+        return new Promise(resolve => {
+            let elapsed = 0;
+            function tick() {
+                if (simulationFastForward || elapsed >= ms) {
+                    resolve();
+                } else {
+                    elapsed += interval;
+                    setTimeout(tick, interval);
+                }
+            }
+            setTimeout(tick, interval);
+        });
+    }
+
+    async function simulateBuild() {
+        if (isSimulating) return;
+        if (portals.length <= 1) return;
+
+        const events = buildSimulationEvents();
+        if (!events || events.length === 0) {
+            return;
+        }
+
+        isSimulating = true;
+        simulationFastForward = false;
+
+        // Start aus leerem Zustand
+        links = [];
+        fields = [];
+        updateFieldCount();
+        updateFieldList();
+
+        visibleLinksCount = 0;
+        visibleFieldsCount = 0;
+
+        setSimulationUiState(true);
+        redrawAll(); // nur Portale
+
+        const delayMs = Math.max(0, delayPerObjectSeconds * 1000);
+
+        for (const ev of events) {
+            if (ev.type === 'link') {
+                links.push(ev.link);
+                visibleLinksCount = links.length;
+            } else if (ev.type === 'field') {
+                fields.push(ev.field);
+                visibleFieldsCount = fields.length;
+                updateFieldCount();
+                updateFieldList();
+            }
+
+            redrawAll();
+
+            if (!simulationFastForward && delayMs > 0) {
+                await sleepWithFastForward(delayMs);
+            }
+        }
+
+        isSimulating = false;
+        simulationFastForward = false;
+
+        visibleLinksCount = null;
+        visibleFieldsCount = null;
+
+        setSimulationUiState(false);
+        redrawAll();
+
+        pushState('simulateBuild');
+    }
 
     // Anpassung der Canvas-Größe
     function resizeCanvas() {
@@ -280,6 +624,9 @@ document.addEventListener("DOMContentLoaded", function () {
     resizeCanvas();
 
     canvas.addEventListener('mousedown', function (event) {
+        if (isSimulating) {
+            return;
+        }
         if (event.button === 0) { // Linksklick
             addPortal(event.offsetX, event.offsetY);
         } else if (event.button === 2) { // Rechtsklick
@@ -367,7 +714,13 @@ document.addEventListener("DOMContentLoaded", function () {
     function drawAllLinks() {
         ctx.strokeStyle = hexToRGBA(linkColor, linkTransparency);
         ctx.lineWidth = 2;
-        for (let link of links) {
+
+        const max = (isSimulating && visibleLinksCount != null)
+            ? Math.min(visibleLinksCount, links.length)
+            : links.length;
+
+        for (let i = 0; i < max; i++) {
+            const link = links[i];
             const s = portals[link.source];
             const t = portals[link.target];
             if (!s || !t) continue; // safety
@@ -379,7 +732,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function drawAllFields() {
-        for (let i = 0; i < fields.length; i++) {
+        const max = (isSimulating && visibleFieldsCount != null)
+            ? Math.min(visibleFieldsCount, fields.length)
+            : fields.length;
+
+        for (let i = 0; i < max; i++) {
             const f = fields[i];
             const [a, b, c] = f;
             // if highlighted, draw differently
@@ -433,98 +790,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
             listBody.appendChild(row); // Füge die Zeile zum Tabellenkörper hinzu
         });
-    }
-
-    // Fields helpers
-
-    function pointIsOnLeftSideOfLine(x1, y1, x2, y2, px, py) {
-        return ((x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)) > 0;
-    }
-
-    function calculateTriangleArea(x1, y1, x2, y2, x3, y3) {
-        return Math.abs((x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2)) / 2.0);
-    }
-
-    function checkForNewFields(newLink) {
-        let sourceLinks = links.filter(link => link.source === newLink.source || link.target === newLink.source);
-        let targetLinks = links.filter(link => link.source === newLink.target || link.target === newLink.target);
-
-        let potentialFields = [];
-
-        sourceLinks.forEach(sLink => {
-            targetLinks.forEach(tLink => {
-                let sharedPortal = sLink.source === newLink.source ? sLink.target : sLink.source;
-                if ((tLink.source === newLink.target && tLink.target === sharedPortal) || (tLink.target === newLink.target && tLink.source === sharedPortal)) {
-                    if (!potentialFields.includes(sharedPortal)) {
-                        potentialFields.push(sharedPortal);
-                    }
-                }
-            });
-        });
-
-        let potentialFieldsLeft = [];
-        let potentialFieldsRight = [];
-
-        potentialFields.forEach(portalIndex => {
-            if (pointIsOnLeftSideOfLine(portals[newLink.source].x, portals[newLink.source].y, portals[newLink.target].x, portals[newLink.target].y, portals[portalIndex].x, portals[portalIndex].y)) {
-                potentialFieldsLeft.push(portalIndex);
-            } else {
-                potentialFieldsRight.push(portalIndex);
-            }
-        });
-
-        // Bestimme und zeichne das größte Feld für die linke Seite
-        determineAndDrawLargestField(newLink, potentialFieldsLeft, true);
-
-        // Bestimme und zeichne das größte Feld für die rechte Seite
-        determineAndDrawLargestField(newLink, potentialFieldsRight, false);
-    }
-
-    function sameFieldExists(triplet) {
-        // compare ignoring order
-        const sortedNew = triplet.slice().sort((a,b)=>a-b).join(',');
-        for (let f of fields) {
-            if (f.slice().sort((a,b)=>a-b).join(',') === sortedNew) return true;
-        }
-        return false;
-    }
-
-    function determineAndDrawLargestField(newLink, potentialFields, isLeftSide) {
-        let largestArea = 0;
-        let bestThirdPointIndex = -1;
-
-        potentialFields.forEach(pointIndex => {
-            let area = calculateTriangleArea(
-                    portals[newLink.source].x, portals[newLink.source].y,
-                    portals[newLink.target].x, portals[newLink.target].y,
-                    portals[pointIndex].x, portals[pointIndex].y);
-
-            if (area > largestArea) {
-                largestArea = area;
-                bestThirdPointIndex = pointIndex;
-            }
-        });
-
-        if (bestThirdPointIndex !== -1) {
-            const triplet = [newLink.source, newLink.target, bestThirdPointIndex];
-            if (!sameFieldExists(triplet)) {
-                fields.push(triplet); // Speichere das Feld (order-preserving)
-                updateFieldCount();
-                updateFieldList();
-                // draw only the new field on top without clearing
-                redrawAll();
-            }
-        }
-    }
-
-    function drawField(sourceIndex, targetIndex, thirdPointIndex) {
-        ctx.fillStyle = hexToRGBA(fieldColor, fieldTransparency);
-        ctx.beginPath();
-        ctx.moveTo(portals[sourceIndex].x, portals[sourceIndex].y);
-        ctx.lineTo(portals[targetIndex].x, portals[targetIndex].y);
-        ctx.lineTo(portals[thirdPointIndex].x, portals[thirdPointIndex].y);
-        ctx.closePath();
-        ctx.fill();
     }
 
     //colors
