@@ -27,6 +27,13 @@ document.addEventListener("DOMContentLoaded", function () {
     let fields = []; // array of [a,b,c] triplets
     let sortClockwise = true;
 
+    // Simulation state
+    let isSimulating = false;
+    let simulationFastForward = false;
+    let visibleLinksCount = null;   // null => all links
+    let visibleFieldsCount = null;  // null => all fields
+    let delayPerObjectSeconds = 1.0;
+
     // History for undo/redo
     const history = [];
     let historyIndex = -1;
@@ -39,38 +46,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Index of highlighted field (for hover), -1 = none
     let highlightedFieldIndex = -1;
-
-    // animation flags
-    let isSimulating = false;
-    let simulationFastForward = false;
-    
-    let visibleLinksCount = null;
-    let visibleFieldsCount = null;
-    
-    let delayPerObjectSeconds = 1.0; // wird vom UI gesetzt
-
-    const simulateButton = document.getElementById('btn-simulate');
-    const speedSelect = document.getElementById('select-speed');
-    
-    speedSelect.addEventListener('change', (e) => {
-      const value = parseFloat(e.target.value);
-      delayPerObjectSeconds = isNaN(value) ? 1.0 : value;
-    });
-    
-    function setSimulationUiState(isRunning) {
-      const allControls = document.querySelectorAll('button, input, select');
-    
-      allControls.forEach(el => {
-        // Simulation-Button wird speziell behandelt
-        if (el === simulateButton) {
-          el.disabled = false; // bleibt klickbar
-          el.textContent = isRunning ? 'Stop' : 'Simulate';
-        } else {
-          el.disabled = isRunning;
-        }
-      });
-    }
-
 
     // Ensure UI parts exist (create field list + undo/redo buttons)
     function ensureUIExtras() {
@@ -300,6 +275,121 @@ document.addEventListener("DOMContentLoaded", function () {
     document.getElementById('rotateLeftBtn').addEventListener('click', rotatePortalsLeft);
     document.getElementById('rotateRightBtn').addEventListener('click', rotatePortalsRight);
 
+    const simulateButton = document.getElementById('simulateBtn');
+    const simulateSpeedSelect = document.getElementById('simulateSpeed');
+
+    if (simulateSpeedSelect) {
+        delayPerObjectSeconds = parseFloat(simulateSpeedSelect.value) || 1.0;
+        simulateSpeedSelect.addEventListener('change', function () {
+            const value = parseFloat(this.value);
+            delayPerObjectSeconds = isNaN(value) ? 1.0 : value;
+        });
+    }
+
+    if (simulateButton) {
+        simulateButton.addEventListener('click', function () {
+            if (isSimulating) {
+                // Stop: rest ohne Verzögerung
+                simulationFastForward = true;
+            } else {
+                simulateBuild();
+            }
+        });
+    }
+
+    function setSimulationUiState(isRunning) {
+        const allControls = container.querySelectorAll('button, input, select');
+        allControls.forEach(el => {
+            if (el === simulateButton) {
+                el.disabled = false;
+                el.textContent = isRunning ? 'Stop' : 'Simulate';
+            } else if (el === simulateSpeedSelect) {
+                el.disabled = isRunning;
+            } else {
+                el.disabled = isRunning;
+            }
+        });
+    }
+
+    function buildSimulationSteps() {
+        const steps = [];
+        for (let i = 0; i < links.length; i++) {
+            steps.push({ type: 'link', index: i });
+        }
+        for (let i = 0; i < fields.length; i++) {
+            steps.push({ type: 'field', index: i });
+        }
+        return steps;
+    }
+
+    function sleepWithFastForward(ms) {
+        if (ms <= 0) return Promise.resolve();
+        const interval = 50;
+        return new Promise(resolve => {
+            let elapsed = 0;
+            function tick() {
+                if (simulationFastForward || elapsed >= ms) {
+                    resolve();
+                } else {
+                    elapsed += interval;
+                    setTimeout(tick, interval);
+                }
+            }
+            setTimeout(tick, interval);
+        });
+    }
+
+    async function simulateBuild() {
+        if (isSimulating) return;
+
+        // Sicherstellen, dass Links/Felder existieren; falls nicht, einmalig erzeugen
+        if (links.length === 0 && portals.length > 1) {
+            createLinks();
+        }
+
+        if (links.length === 0 && fields.length === 0) {
+            return; // nichts zu simulieren
+        }
+
+        isSimulating = true;
+        simulationFastForward = false;
+
+        visibleLinksCount = 0;
+        visibleFieldsCount = 0;
+
+        setSimulationUiState(true);
+        redrawAll();
+
+        const steps = buildSimulationSteps();
+        const delayMs = Math.max(0, delayPerObjectSeconds * 1000);
+
+        for (const step of steps) {
+            if (step.type === 'link') {
+                if (visibleLinksCount < step.index + 1) {
+                    visibleLinksCount = step.index + 1;
+                }
+            } else if (step.type === 'field') {
+                if (visibleFieldsCount < step.index + 1) {
+                    visibleFieldsCount = step.index + 1;
+                }
+            }
+
+            redrawAll();
+
+            if (!simulationFastForward && delayMs > 0) {
+                await sleepWithFastForward(delayMs);
+            }
+        }
+
+        isSimulating = false;
+        simulationFastForward = false;
+
+        visibleLinksCount = null;
+        visibleFieldsCount = null;
+
+        setSimulationUiState(false);
+        redrawAll();
+    }
 
     // Anpassung der Canvas-Größe
     function resizeCanvas() {
@@ -312,6 +402,9 @@ document.addEventListener("DOMContentLoaded", function () {
     resizeCanvas();
 
     canvas.addEventListener('mousedown', function (event) {
+        if (isSimulating) {
+            return;
+        }
         if (event.button === 0) { // Linksklick
             addPortal(event.offsetX, event.offsetY);
         } else if (event.button === 2) { // Rechtsklick
@@ -399,7 +492,13 @@ document.addEventListener("DOMContentLoaded", function () {
     function drawAllLinks() {
         ctx.strokeStyle = hexToRGBA(linkColor, linkTransparency);
         ctx.lineWidth = 2;
-        for (let link of links) {
+
+        const max = (isSimulating && visibleLinksCount != null)
+            ? Math.min(visibleLinksCount, links.length)
+            : links.length;
+
+        for (let i = 0; i < max; i++) {
+            const link = links[i];
             const s = portals[link.source];
             const t = portals[link.target];
             if (!s || !t) continue; // safety
@@ -411,7 +510,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function drawAllFields() {
-        for (let i = 0; i < fields.length; i++) {
+        const max = (isSimulating && visibleFieldsCount != null)
+            ? Math.min(visibleFieldsCount, fields.length)
+            : fields.length;
+
+        for (let i = 0; i < max; i++) {
             const f = fields[i];
             const [a, b, c] = f;
             // if highlighted, draw differently
